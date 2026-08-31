@@ -15,17 +15,17 @@
 		<form id="login-form" class="login-form">
 			<p class="eyebrow">PARTICIPANTS ONLY</p>
 			<h1 id="auth-title">旅の続きを、<br>ここから。</h1>
-			<p class="login-copy">社員旅行の参加者専用サイトです。案内されたアカウントでログインしてください。</p>
+			<p id="login-copy" class="login-copy">チームのQRコードを読み取り、最初の一度だけ参加登録してください。</p>
 			<label class="field">
-				<span>メールアドレス</span>
-				<input id="login-email" name="email" type="email" autocomplete="username" required>
+				<span>表示名</span>
+				<input id="display-name" name="display_name" type="text" maxlength="80" autocomplete="nickname" placeholder="例：山田" required>
 			</label>
 			<label class="field">
-				<span>パスワード</span>
-				<input id="login-password" name="password" type="password" autocomplete="current-password" required>
+				<span>イベントPIN</span>
+				<input id="event-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" autocomplete="one-time-code" placeholder="4〜8桁の数字" required>
 			</label>
 			<p id="login-message" class="form-message" role="alert" hidden></p>
-			<button id="login-button" class="button button-primary" type="submit">ログイン</button>
+			<button id="login-button" class="button button-primary" type="submit">この端末で参加する</button>
 		</form>
 	</section>
 
@@ -37,7 +37,7 @@
 		<p class="header-copy">いつもの景色を、少し丁寧に。</p>
 		<div class="header-actions">
 			<span id="participant-name" class="participant-name"></span>
-			<button class="icon-button" type="button" data-sign-out aria-label="ログアウト" title="ログアウト">
+			<button class="icon-button" type="button" data-sign-out aria-label="この端末の参加登録を解除" title="参加登録を解除">
 				<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3M14 4h5a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5"/></svg>
 			</button>
 			<button class="button button-primary header-action" type="button" data-open-upload>

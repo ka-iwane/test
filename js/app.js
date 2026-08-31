@@ -7,11 +7,13 @@ const THUMBNAIL_EDGE = 720;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const isConfigured = SUPABASE_URL.startsWith("https://") && !SUPABASE_ANON_KEY.startsWith("YOUR_");
 const supabase = isConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+const teamToken = new URLSearchParams(window.location.hash.slice(1)).get("team")?.trim() || "";
 
 const elements = {
   loginForm: document.querySelector("#login-form"),
-  loginEmail: document.querySelector("#login-email"),
-  loginPassword: document.querySelector("#login-password"),
+  loginCopy: document.querySelector("#login-copy"),
+  displayName: document.querySelector("#display-name"),
+  eventPin: document.querySelector("#event-pin"),
   loginMessage: document.querySelector("#login-message"),
   loginButton: document.querySelector("#login-button"),
   participantName: document.querySelector("#participant-name"),
@@ -136,7 +138,7 @@ function openPhoto(photo) {
     copy.append(location);
   }
 
-  if (currentUser?.id === photo.user_id) {
+  if (currentParticipant?.team_name === photo.team_name) {
     const deleteButton = document.createElement("button");
     deleteButton.className = "delete-button";
     deleteButton.type = "button";
@@ -152,8 +154,16 @@ function openPhoto(photo) {
 function showLogin(message = "") {
   document.body.classList.remove("auth-pending", "is-authenticated");
   document.body.classList.add("is-auth-required");
-  elements.loginMessage.hidden = !message;
-  elements.loginMessage.textContent = message;
+  const needsQr = !teamToken;
+  elements.loginCopy.textContent = needsQr
+    ? "チームのQRコードからこのページを開いてください。"
+    : "表示名と旅行案内に記載されたイベントPINを入力してください。";
+  elements.displayName.disabled = needsQr;
+  elements.eventPin.disabled = needsQr;
+  elements.loginButton.disabled = needsQr;
+  const displayMessage = message || (needsQr ? "参加登録にはチームのQRコードが必要です。" : "");
+  elements.loginMessage.hidden = !displayMessage;
+  elements.loginMessage.textContent = displayMessage;
 }
 
 async function activateSession(session) {
@@ -166,9 +176,9 @@ async function activateSession(session) {
     .single();
 
   if (error || !data) {
-    await supabase.auth.signOut();
+    if (!teamToken) await supabase.auth.signOut();
     currentUser = null;
-    throw new Error("このアカウントは旅行参加者として登録されていません。管理者へ確認してください。");
+    throw new Error("この端末は旅行参加者として登録されていません。");
   }
 
   currentParticipant = data;
@@ -184,7 +194,7 @@ async function loadPhotos() {
   setStatus("写真を読み込んでいます");
   const { data, error } = await supabase
     .from("photos")
-    .select("id, user_id, storage_path, thumbnail_path, caption, location, taken_at, created_at")
+    .select("id, user_id, team_name, storage_path, thumbnail_path, caption, location, taken_at, created_at")
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
     .limit(100);
@@ -402,15 +412,40 @@ async function deletePhoto(photo, button) {
 function bindEvents() {
   elements.loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!teamToken) {
+      showLogin();
+      return;
+    }
     elements.loginButton.disabled = true;
     elements.loginMessage.hidden = true;
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: elements.loginEmail.value.trim(),
-      password: elements.loginPassword.value
-    });
     try {
-      if (error) throw new Error("メールアドレスまたはパスワードが正しくありません。");
-      await activateSession(data.session);
+      let { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        const { data, error } = await supabase.auth.signInAnonymously();
+        if (error) throw new Error("参加登録を開始できませんでした。しばらくしてから再度お試しください。");
+        sessionData = data;
+      }
+
+      const { data: claimResult, error: claimError } = await supabase.rpc("claim_team_access", {
+        p_team_token: teamToken,
+        p_pin: elements.eventPin.value,
+        p_display_name: elements.displayName.value.trim()
+      });
+      if (claimError) {
+        await supabase.auth.signOut();
+        throw new Error("参加登録に失敗しました。しばらくしてから再度お試しください。");
+      }
+      if (claimResult !== "ok") {
+        const messages = {
+          invalid_display_name: "表示名を入力してください。",
+          rate_limited: "PINの入力回数が上限に達しました。10分後に再度お試しください。",
+          already_registered: "この端末はすでに参加登録されています。"
+        };
+        throw new Error(messages[claimResult] || "QRコードまたはPINが正しくないか、有効期限が切れています。");
+      }
+
+      await activateSession(sessionData.session);
+      window.history.replaceState({}, "", window.location.pathname);
       elements.loginForm.reset();
     } catch (loginError) {
       showLogin(loginError.message);
@@ -419,11 +454,9 @@ function bindEvents() {
     }
   });
   document.querySelector("[data-sign-out]").addEventListener("click", async () => {
+    if (!window.confirm("この端末の参加登録を解除しますか？再参加にはチームのQRコードとPINが必要です。")) return;
     await supabase.auth.signOut();
-    currentUser = null;
-    currentParticipant = null;
-    elements.gallery.replaceChildren();
-    showLogin();
+    window.location.replace(window.location.pathname);
   });
   document.querySelectorAll("[data-open-upload]").forEach((button) => {
     button.addEventListener("click", () => elements.uploadDialog.showModal());
@@ -487,7 +520,7 @@ async function initialize() {
     }
     await activateSession(data.session);
   } catch (error) {
-    showLogin(error.message || "ログイン状態を確認できませんでした。");
+    showLogin(teamToken ? "" : (error.message || "参加状態を確認できませんでした。"));
   }
 }
 
