@@ -26,6 +26,15 @@ create table if not exists public.team_access (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.missions (
+  id uuid primary key default gen_random_uuid(),
+  team_name text not null check (char_length(team_name) between 1 and 80),
+  title text not null check (char_length(title) between 1 and 120),
+  description text check (description is null or char_length(description) <= 500),
+  is_active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.team_claim_attempts (
   user_id uuid primary key references auth.users(id) on delete cascade,
   attempt_count integer not null default 0,
@@ -47,6 +56,7 @@ create table if not exists public.photos (
 alter table public.photos add column if not exists thumbnail_path text;
 alter table public.photos add column if not exists deleted_at timestamptz;
 alter table public.photos add column if not exists team_name text;
+alter table public.photos add column if not exists mission_id uuid references public.missions(id);
 
 create index if not exists photos_created_at_idx on public.photos (created_at desc);
 create index if not exists photos_user_id_idx on public.photos (user_id);
@@ -83,6 +93,14 @@ begin
 
   if new.team_name is null then
     raise exception '有効なチーム参加登録が必要です。';
+  end if;
+  if new.mission_id is null or not exists (
+    select 1 from public.missions
+    where missions.id = new.mission_id
+      and missions.team_name = new.team_name
+      and missions.is_active
+  ) then
+    raise exception 'このチームで有効なミッションを選択してください。';
   end if;
   return new;
 end;
@@ -291,6 +309,124 @@ begin
 end;
 $$;
 
+create or replace function public.admin_rename_team(
+  p_id uuid,
+  p_new_name text
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_old_name text;
+  v_new_name text := trim(p_new_name);
+begin
+  if not public.is_admin() then
+    raise exception '管理者権限が必要です。';
+  end if;
+  if v_new_name is null or char_length(v_new_name) not between 1 and 80 then
+    raise exception 'チーム名は1〜80文字で入力してください。';
+  end if;
+
+  select team_name into v_old_name
+  from public.team_access
+  where id = p_id
+  for update;
+  if not found then
+    raise exception '対象のチームが見つかりません。';
+  end if;
+  if v_old_name = v_new_name then
+    return;
+  end if;
+  if exists (
+    select 1 from public.team_access
+    where team_name = v_new_name and team_name <> v_old_name
+  ) then
+    raise exception '同じ名前のチームがすでに存在します。';
+  end if;
+
+  update public.team_access set team_name = v_new_name where team_name = v_old_name;
+  update public.missions set team_name = v_new_name where team_name = v_old_name;
+  update public.participants set team_name = v_new_name where team_name = v_old_name;
+  update public.photos set team_name = v_new_name where team_name = v_old_name;
+end;
+$$;
+
+create or replace function public.admin_create_mission(
+  p_team_name text,
+  p_title text,
+  p_description text default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_id uuid;
+begin
+  if not public.is_admin() then
+    raise exception '管理者権限が必要です。';
+  end if;
+  if char_length(trim(p_team_name)) not between 1 and 80
+    or char_length(trim(p_title)) not between 1 and 120
+    or char_length(coalesce(trim(p_description), '')) > 500 then
+    raise exception 'チーム名とミッション内容を確認してください。';
+  end if;
+  if not exists (select 1 from public.team_access where team_name = trim(p_team_name)) then
+    raise exception '発行済みのチームを選択してください。';
+  end if;
+
+  insert into public.missions (team_name, title, description)
+  values (trim(p_team_name), trim(p_title), nullif(trim(p_description), ''))
+  returning id into v_id;
+  return v_id;
+end;
+$$;
+
+create or replace function public.admin_list_missions()
+returns table (
+  id uuid,
+  team_name text,
+  title text,
+  description text,
+  is_active boolean,
+  created_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '管理者権限が必要です。';
+  end if;
+  return query
+  select mission.id, mission.team_name, mission.title, mission.description,
+    mission.is_active, mission.created_at
+  from public.missions mission
+  order by mission.team_name, mission.created_at;
+end;
+$$;
+
+create or replace function public.admin_set_mission_active(
+  p_id uuid,
+  p_is_active boolean
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '管理者権限が必要です。';
+  end if;
+  update public.missions set is_active = p_is_active where id = p_id;
+end;
+$$;
+
 create or replace function public.admin_list_participants()
 returns table (
   user_id uuid,
@@ -337,11 +473,19 @@ $$;
 revoke all on function public.admin_create_team_access(text, text, timestamptz, integer) from public, anon;
 revoke all on function public.admin_list_team_access() from public, anon;
 revoke all on function public.admin_set_team_access_active(uuid, boolean) from public, anon;
+revoke all on function public.admin_rename_team(uuid, text) from public, anon;
+revoke all on function public.admin_create_mission(text, text, text) from public, anon;
+revoke all on function public.admin_list_missions() from public, anon;
+revoke all on function public.admin_set_mission_active(uuid, boolean) from public, anon;
 revoke all on function public.admin_list_participants() from public, anon;
 revoke all on function public.admin_set_participant_active(uuid, boolean) from public, anon;
 grant execute on function public.admin_create_team_access(text, text, timestamptz, integer) to authenticated;
 grant execute on function public.admin_list_team_access() to authenticated;
 grant execute on function public.admin_set_team_access_active(uuid, boolean) to authenticated;
+grant execute on function public.admin_rename_team(uuid, text) to authenticated;
+grant execute on function public.admin_create_mission(text, text, text) to authenticated;
+grant execute on function public.admin_list_missions() to authenticated;
+grant execute on function public.admin_set_mission_active(uuid, boolean) to authenticated;
 grant execute on function public.admin_list_participants() to authenticated;
 grant execute on function public.admin_set_participant_active(uuid, boolean) to authenticated;
 
@@ -371,6 +515,20 @@ alter table public.admins enable row level security;
 alter table public.participants enable row level security;
 alter table public.team_access enable row level security;
 alter table public.team_claim_attempts enable row level security;
+alter table public.missions enable row level security;
+
+drop policy if exists "Team participants can read missions" on public.missions;
+create policy "Team participants can read missions"
+on public.missions for select
+to authenticated
+using (
+  public.is_admin()
+  or exists (
+    select 1 from public.participants
+    where participants.user_id = (select auth.uid())
+      and participants.is_active
+  )
+);
 
 drop policy if exists "Admins can read their own profile" on public.admins;
 create policy "Admins can read their own profile"

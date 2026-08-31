@@ -5,7 +5,6 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY } from "../js/config.js";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { storageKey: "tabique-admin-auth" }
 });
-const TEAM_NAMES = ["チームA", "チームB", "チームC", "チームD", "チームE", "チームF"];
 
 const elements = {
   login: document.querySelector("#admin-login"),
@@ -20,6 +19,14 @@ const elements = {
   viewTitle: document.querySelector("#view-title"),
   issueForm: document.querySelector("#issue-teams-form"),
   issueButton: document.querySelector("#issue-teams"),
+  teamNameInputs: document.querySelectorAll(".team-name-input"),
+  missionForm: document.querySelector("#mission-form"),
+  missionTeam: document.querySelector("#mission-team"),
+  missionTitle: document.querySelector("#mission-title"),
+  missionDescription: document.querySelector("#mission-description"),
+  missionSubmit: document.querySelector("#mission-submit"),
+  missionCount: document.querySelector("#mission-count"),
+  missionsBody: document.querySelector("#missions-body"),
   pin: document.querySelector("#team-pin"),
   expires: document.querySelector("#team-expires"),
   limit: document.querySelector("#team-limit"),
@@ -76,20 +83,79 @@ async function activateAdmin(session) {
 
 async function loadAll() {
   setMessage("最新情報を読み込んでいます。");
-  const [teamsResult, participantsResult, reportsResult] = await Promise.all([
+  const [teamsResult, missionsResult, participantsResult, reportsResult] = await Promise.all([
     supabase.rpc("admin_list_team_access"),
+    supabase.rpc("admin_list_missions"),
     supabase.rpc("admin_list_participants"),
-    supabase.from("photos").select("id, team_name, caption, storage_path, thumbnail_path, created_at").is("deleted_at", null).order("created_at", { ascending: false }).limit(200)
+    supabase.from("photos").select("id, team_name, caption, storage_path, thumbnail_path, created_at, mission:missions(title)").is("deleted_at", null).order("created_at", { ascending: false }).limit(200)
   ]);
-  const error = teamsResult.error || participantsResult.error || reportsResult.error;
+  const error = teamsResult.error || missionsResult.error || participantsResult.error || reportsResult.error;
   if (error) {
     setMessage(`情報を読み込めませんでした: ${error.message}`, true);
     return;
   }
   renderTeams(teamsResult.data);
+  renderMissionTeams(teamsResult.data);
+  renderMissions(missionsResult.data);
   renderParticipants(participantsResult.data);
   await renderReports(reportsResult.data);
   setMessage("");
+}
+
+function renderMissionTeams(teams) {
+  const currentValue = elements.missionTeam.value;
+  const names = [...new Set(teams.map((team) => team.team_name))].sort((left, right) => left.localeCompare(right, "ja"));
+  elements.missionTeam.replaceChildren(new Option("チームを選択", ""));
+  names.forEach((name) => elements.missionTeam.add(new Option(name, name)));
+  if (names.includes(currentValue)) elements.missionTeam.value = currentValue;
+}
+
+function renderMissions(missions) {
+  elements.missionsBody.replaceChildren();
+  elements.missionCount.textContent = `${missions.length}件`;
+  if (!missions.length) {
+    elements.missionsBody.innerHTML = '<tr><td class="empty" colspan="5">登録済みのミッションはありません。</td></tr>';
+    return;
+  }
+  missions.forEach((mission) => {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td>${escapeHtml(mission.team_name)}</td>
+      <td><strong>${escapeHtml(mission.title)}</strong></td>
+      <td>${escapeHtml(mission.description || "-")}</td>
+      <td><span class="status${mission.is_active ? "" : " off"}">${mission.is_active ? "公開中" : "停止中"}</span></td>
+      <td><button class="text-button" type="button">${mission.is_active ? "停止" : "再開"}</button></td>`;
+    row.querySelector("button").addEventListener("click", () => toggleMission(mission));
+    elements.missionsBody.append(row);
+  });
+}
+
+async function createMission(event) {
+  event.preventDefault();
+  elements.missionSubmit.disabled = true;
+  const { error } = await supabase.rpc("admin_create_mission", {
+    p_team_name: elements.missionTeam.value,
+    p_title: elements.missionTitle.value.trim(),
+    p_description: elements.missionDescription.value.trim() || null
+  });
+  elements.missionSubmit.disabled = false;
+  if (error) {
+    setMessage(error.message, true);
+    return;
+  }
+  const teamName = elements.missionTeam.value;
+  elements.missionForm.reset();
+  elements.missionTeam.value = teamName;
+  await loadAll();
+  setMessage("ミッションを追加しました。");
+}
+
+async function toggleMission(mission) {
+  const action = mission.is_active ? "停止" : "再開";
+  if (!confirm(`「${mission.title}」を${action}しますか？`)) return;
+  const { error } = await supabase.rpc("admin_set_mission_active", { p_id: mission.id, p_is_active: !mission.is_active });
+  if (error) setMessage(error.message, true);
+  else await loadAll();
 }
 
 function renderTeams(teams) {
@@ -101,12 +167,15 @@ function renderTeams(teams) {
   teams.forEach((team) => {
     const row = document.createElement("tr");
     row.innerHTML = `
-      <td><strong>${escapeHtml(team.team_name)}</strong></td>
+      <td><div class="team-name-editor"><input type="text" maxlength="80"><button class="text-button rename-team" type="button">変更</button></div></td>
       <td>${team.registration_count} / ${team.max_registrations}</td>
       <td>${formatDate(team.expires_at)}</td>
       <td><span class="status${team.is_active ? "" : " off"}">${team.is_active ? "有効" : "停止中"}</span></td>
-      <td><button class="text-button" type="button">${team.is_active ? "停止" : "再開"}</button></td>`;
-    row.querySelector("button").addEventListener("click", () => toggleTeam(team));
+      <td><button class="text-button toggle-team" type="button">${team.is_active ? "停止" : "再開"}</button></td>`;
+    row.querySelector("input").value = team.team_name;
+    row.querySelector("input").setAttribute("aria-label", `${team.team_name}の新しい名前`);
+    row.querySelector(".rename-team").addEventListener("click", () => renameTeam(team, row.querySelector("input")));
+    row.querySelector(".toggle-team").addEventListener("click", () => toggleTeam(team));
     elements.teamsBody.append(row);
   });
 }
@@ -148,7 +217,8 @@ async function renderReports(reports) {
     item.innerHTML = `
       <img src="${escapeHtml(urls.get(path) || "")}" alt="">
       <div class="report-copy">
-        <strong>${escapeHtml(report.caption || "ミッション達成！")}</strong>
+        <strong>${escapeHtml(report.mission?.title || "ミッション達成")}</strong>
+        ${report.caption ? `<p>${escapeHtml(report.caption)}</p>` : ""}
         <p class="report-meta">${escapeHtml(report.team_name)} ・ ${formatDate(report.created_at)}</p>
         <button class="text-button" type="button">削除する</button>
       </div>`;
@@ -163,6 +233,26 @@ async function toggleTeam(team) {
   const { error } = await supabase.rpc("admin_set_team_access_active", { p_id: team.id, p_is_active: !team.is_active });
   if (error) setMessage(error.message, true);
   else await loadAll();
+}
+
+async function renameTeam(team, input) {
+  const newName = input.value.trim();
+  if (!newName) {
+    setMessage("チーム名を入力してください。", true);
+    input.focus();
+    return;
+  }
+  if (newName === team.team_name) {
+    setMessage("チーム名は変更されていません。", true);
+    return;
+  }
+  if (!confirm(`${team.team_name}を「${newName}」へ変更しますか？参加端末と達成レポートの表示も変更されます。`)) return;
+  const { error } = await supabase.rpc("admin_rename_team", { p_id: team.id, p_new_name: newName });
+  if (error) setMessage(error.message, true);
+  else {
+    await loadAll();
+    setMessage(`チーム名を「${newName}」へ変更しました。`);
+  }
 }
 
 async function toggleParticipant(participant) {
@@ -221,11 +311,20 @@ async function renderIssuedQr(issuedTeams) {
 
 async function issueSixTeams(event) {
   event.preventDefault();
+  const teamNames = [...elements.teamNameInputs].map((input) => input.value.trim());
+  if (teamNames.some((name) => !name)) {
+    setMessage("6つすべてのチーム名を入力してください。", true);
+    return;
+  }
+  if (new Set(teamNames).size !== teamNames.length) {
+    setMessage("チーム名が重複しています。異なる名前を入力してください。", true);
+    return;
+  }
   elements.issueButton.disabled = true;
   setMessage("6チームのQRコードを発行しています。");
   const issued = [];
   try {
-    for (const name of TEAM_NAMES) {
+    for (const name of teamNames) {
       const { data, error } = await supabase.rpc("admin_create_team_access", {
         p_team_name: name,
         p_pin: elements.pin.value,
@@ -248,7 +347,7 @@ async function issueSixTeams(event) {
 }
 
 function switchView(name) {
-  const titles = { teams: "チーム管理", participants: "参加端末", reports: "達成レポート" };
+  const titles = { teams: "チーム管理", missions: "ミッション管理", participants: "参加端末", reports: "達成レポート" };
   document.querySelectorAll(".view").forEach((view) => { view.hidden = view.id !== `${name}-view`; });
   document.querySelectorAll(".nav-button").forEach((button) => { button.classList.toggle("is-active", button.dataset.view === name); });
   elements.viewTitle.textContent = titles[name];
@@ -271,6 +370,7 @@ elements.loginForm.addEventListener("submit", async (event) => {
 });
 
 elements.issueForm.addEventListener("submit", issueSixTeams);
+elements.missionForm.addEventListener("submit", createMission);
 document.querySelectorAll(".nav-button").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
 document.querySelector("#refresh").addEventListener("click", loadAll);
 document.querySelector("#sign-out").addEventListener("click", async () => { await supabase.auth.signOut(); showLogin(); });

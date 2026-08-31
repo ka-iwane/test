@@ -29,6 +29,7 @@ const elements = {
   imagePreview: document.querySelector("#image-preview"),
   dropPlaceholder: document.querySelector("#drop-placeholder"),
   dropZone: document.querySelector("#drop-zone"),
+  mission: document.querySelector("#mission"),
   caption: document.querySelector("#caption"),
   captionCount: document.querySelector("#caption-count"),
   takenAt: document.querySelector("#taken-at"),
@@ -69,6 +70,11 @@ function hideStatus() {
 
 function createMeta(photo) {
   const fragment = document.createDocumentFragment();
+  if (photo.team_name) {
+    const team = document.createElement("span");
+    team.textContent = photo.team_name;
+    fragment.append(team);
+  }
   if (photo.taken_at) {
     const date = document.createElement("span");
     date.textContent = formatDate(photo.taken_at);
@@ -92,8 +98,12 @@ function renderPhotos(photos) {
     const image = card.querySelector(".photo-card-image");
     const openButton = card.querySelector(".photo-card-open");
     image.src = photo.thumbnailUrl;
-    image.alt = photo.caption || "ミッション達成写真";
-    card.querySelector(".photo-card-caption").textContent = photo.caption || "ミッション達成！";
+    const missionTitle = photo.mission?.title || "ミッション達成";
+    image.alt = `${missionTitle}の達成写真`;
+    card.querySelector(".photo-card-caption").textContent = missionTitle;
+    const comment = card.querySelector(".photo-card-comment");
+    comment.textContent = photo.caption || "";
+    comment.hidden = !photo.caption;
     card.querySelector(".photo-card-meta").append(createMeta(photo));
     card.style.animationDelay = `${Math.min(index * 70, 350)}ms`;
     openButton.setAttribute("aria-label", `${image.alt}を拡大表示`);
@@ -119,13 +129,20 @@ function openPhoto(photo) {
   const image = document.createElement("img");
   image.className = "photo-detail-image";
   image.src = photo.publicUrl;
-  image.alt = photo.caption || "ミッション達成写真";
+  const missionTitle = photo.mission?.title || "ミッション達成";
+  image.alt = `${missionTitle}の達成写真`;
 
   const copy = document.createElement("div");
   copy.className = "photo-detail-copy";
   const caption = document.createElement("h3");
-  caption.textContent = photo.caption || "ミッション達成！";
+  caption.textContent = missionTitle;
   copy.append(caption);
+
+  if (photo.caption) {
+    const comment = document.createElement("p");
+    comment.textContent = photo.caption;
+    copy.append(comment);
+  }
 
   if (photo.taken_at) {
     const date = document.createElement("p");
@@ -187,14 +204,36 @@ async function activateSession(session) {
     : data.display_name;
   document.body.classList.remove("auth-pending", "is-auth-required");
   document.body.classList.add("is-authenticated");
-  await loadPhotos();
+  await Promise.all([loadMissions(), loadPhotos()]);
+}
+
+async function loadMissions() {
+  const selectedValue = elements.mission.value;
+  const { data, error } = await supabase
+    .from("missions")
+    .select("id, title, description")
+    .eq("team_name", currentParticipant.team_name)
+    .eq("is_active", true)
+    .order("created_at");
+
+  elements.mission.replaceChildren(new Option("ミッションを選択", ""));
+  if (error) {
+    showFormMessage(`ミッションを読み込めませんでした: ${error.message}`);
+    return;
+  }
+  data.forEach((mission) => {
+    const option = new Option(mission.title, mission.id);
+    option.title = mission.description || "";
+    elements.mission.add(option);
+  });
+  if (data.some((mission) => mission.id === selectedValue)) elements.mission.value = selectedValue;
 }
 
 async function loadPhotos() {
   setStatus("達成レポートを読み込んでいます");
   const { data, error } = await supabase
     .from("photos")
-    .select("id, user_id, team_name, storage_path, thumbnail_path, caption, location, taken_at, created_at")
+    .select("id, user_id, team_name, mission_id, storage_path, thumbnail_path, caption, location, taken_at, created_at, mission:missions(title)")
     .is("deleted_at", null)
     .order("created_at", { ascending: false })
     .limit(100);
@@ -327,7 +366,19 @@ async function handleUpload(event) {
     showFormMessage(validationMessage);
     return;
   }
+  if (!elements.mission.value) {
+    showFormMessage("達成したミッションを選択してください。");
+    elements.mission.focus();
+    return;
+  }
 
+  const formData = new FormData(elements.uploadForm);
+  const report = {
+    missionId: formData.get("mission_id"),
+    caption: formData.get("caption")?.trim() || null,
+    location: formData.get("location")?.trim() || null,
+    takenAt: formData.get("taken_at") || null
+  };
   setSubmitting(true);
   let storagePath = "";
   try {
@@ -349,15 +400,16 @@ async function handleUpload(event) {
       throw thumbnailError;
     }
 
-    const formData = new FormData(elements.uploadForm);
     const { error: insertError } = await supabase.from("photos").insert({
       user_id: currentUser.id,
+      team_name: currentParticipant.team_name,
       storage_path: storagePath,
       thumbnail_path: thumbnailPath,
       original_name: file.name.slice(0, 255),
-      caption: formData.get("caption")?.trim() || null,
-      location: formData.get("location")?.trim() || null,
-      taken_at: formData.get("taken_at") || null
+      mission_id: report.missionId,
+      caption: report.caption,
+      location: report.location,
+      taken_at: report.takenAt
     });
     if (insertError) {
       await supabase.storage.from("photos").remove([storagePath, thumbnailPath]);
@@ -459,7 +511,10 @@ function bindEvents() {
     window.location.replace(window.location.pathname);
   });
   document.querySelectorAll("[data-open-upload]").forEach((button) => {
-    button.addEventListener("click", () => elements.uploadDialog.showModal());
+    button.addEventListener("click", async () => {
+      await loadMissions();
+      elements.uploadDialog.showModal();
+    });
   });
   document.querySelectorAll("[data-close-dialog]").forEach((button) => {
     button.addEventListener("click", () => elements.uploadDialog.close());

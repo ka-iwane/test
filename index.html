@@ -113,6 +113,12 @@
 
 			<div class="field-grid">
 				<label class="field field-wide">
+					<span>達成したミッション</span>
+					<select id="mission" name="mission_id" required>
+						<option value="">ミッションを選択</option>
+					</select>
+				</label>
+				<label class="field field-wide">
 					<span>達成コメント <small>任意</small></span>
 					<textarea id="caption" name="caption" maxlength="160" rows="3" placeholder="どんなミッションを、どう達成した？"></textarea>
 					<span id="caption-count" class="character-count">0 / 160</span>
@@ -156,6 +162,7 @@
 			</button>
 			<div class="photo-card-info">
 				<p class="photo-card-caption"></p>
+				<p class="photo-card-comment" hidden></p>
 				<div class="photo-card-meta"></div>
 			</div>
 		</article>

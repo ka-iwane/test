@@ -458,6 +458,13 @@ h1 em {
   line-height: 1.6;
 }
 
+.photo-card-comment {
+  margin: -2px 0 9px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
 .photo-card-meta {
   color: var(--muted);
   display: flex;
@@ -670,6 +677,7 @@ dialog::backdrop {
 }
 
 .field input,
+.field select,
 .field textarea {
   width: 100%;
   border: 0;
@@ -681,6 +689,11 @@ dialog::backdrop {
 
 .field input {
   height: 44px;
+}
+
+.field select {
+  height: 44px;
+  padding: 0 34px 0 0;
 }
 
 .field textarea {

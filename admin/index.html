@@ -42,6 +42,7 @@
     <div class="workspace">
       <nav class="side-nav" aria-label="管理メニュー">
         <button class="nav-button is-active" type="button" data-view="teams">チーム管理</button>
+        <button class="nav-button" type="button" data-view="missions">ミッション管理</button>
         <button class="nav-button" type="button" data-view="participants">参加端末</button>
         <button class="nav-button" type="button" data-view="reports">達成レポート</button>
       </nav>
@@ -60,9 +61,18 @@
           <div class="issue-panel">
             <div>
               <h3>6チームのQRを一括発行</h3>
-              <p>チームA〜Fを作成します。PINはQRと別経路で参加者へ共有してください。</p>
+              <p>6つのチーム名を決めて発行します。PINはQRと別経路で参加者へ共有してください。</p>
             </div>
             <form id="issue-teams-form" class="issue-form">
+              <fieldset class="team-name-fields">
+                <legend>チーム名</legend>
+                <input class="team-name-input" type="text" maxlength="80" value="チームA" aria-label="1つ目のチーム名" required>
+                <input class="team-name-input" type="text" maxlength="80" value="チームB" aria-label="2つ目のチーム名" required>
+                <input class="team-name-input" type="text" maxlength="80" value="チームC" aria-label="3つ目のチーム名" required>
+                <input class="team-name-input" type="text" maxlength="80" value="チームD" aria-label="4つ目のチーム名" required>
+                <input class="team-name-input" type="text" maxlength="80" value="チームE" aria-label="5つ目のチーム名" required>
+                <input class="team-name-input" type="text" maxlength="80" value="チームF" aria-label="6つ目のチーム名" required>
+              </fieldset>
               <label>
                 <span>共通PIN</span>
                 <input id="team-pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" placeholder="6桁推奨" required>
@@ -99,6 +109,40 @@
             <table>
               <thead><tr><th>チーム</th><th>登録数</th><th>有効期限</th><th>状態</th><th>操作</th></tr></thead>
               <tbody id="teams-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="missions-view" class="view" aria-labelledby="view-title" hidden>
+          <div class="issue-panel">
+            <div>
+              <h3>チーム別ミッションを追加</h3>
+              <p>参加者はここで登録したミッションを選び、写真付きで達成報告します。</p>
+            </div>
+            <form id="mission-form" class="mission-form">
+              <label>
+                <span>チーム</span>
+                <select id="mission-team" required><option value="">チームを選択</option></select>
+              </label>
+              <label>
+                <span>ミッション名</span>
+                <input id="mission-title" type="text" maxlength="120" placeholder="例：全員でご当地ポーズ" required>
+              </label>
+              <label>
+                <span>説明 <small>任意</small></span>
+                <textarea id="mission-description" maxlength="500" rows="3" placeholder="達成条件や注意事項"></textarea>
+              </label>
+              <button id="mission-submit" class="button primary" type="submit">ミッションを追加</button>
+            </form>
+          </div>
+          <div class="section-title">
+            <div><h3>登録済みミッション</h3><p>停止すると新しい達成報告の選択肢から外れます。</p></div>
+            <strong id="mission-count">0件</strong>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>チーム</th><th>ミッション</th><th>説明</th><th>状態</th><th>操作</th></tr></thead>
+              <tbody id="missions-body"></tbody>
             </table>
           </div>
         </section>
