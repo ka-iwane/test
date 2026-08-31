@@ -85,15 +85,15 @@ function createMeta(photo) {
 function renderPhotos(photos) {
   elements.gallery.replaceChildren();
   elements.emptyState.hidden = photos.length > 0;
-  elements.photoCount.textContent = `${photos.length} PHOTOS`;
+  elements.photoCount.textContent = `${photos.length} REPORTS`;
 
   photos.forEach((photo, index) => {
     const card = elements.cardTemplate.content.firstElementChild.cloneNode(true);
     const image = card.querySelector(".photo-card-image");
     const openButton = card.querySelector(".photo-card-open");
     image.src = photo.thumbnailUrl;
-    image.alt = photo.caption || "投稿された写真";
-    card.querySelector(".photo-card-caption").textContent = photo.caption || "言葉のない一枚";
+    image.alt = photo.caption || "ミッション達成写真";
+    card.querySelector(".photo-card-caption").textContent = photo.caption || "ミッション達成！";
     card.querySelector(".photo-card-meta").append(createMeta(photo));
     card.style.animationDelay = `${Math.min(index * 70, 350)}ms`;
     openButton.setAttribute("aria-label", `${image.alt}を拡大表示`);
@@ -119,12 +119,12 @@ function openPhoto(photo) {
   const image = document.createElement("img");
   image.className = "photo-detail-image";
   image.src = photo.publicUrl;
-  image.alt = photo.caption || "投稿された写真";
+  image.alt = photo.caption || "ミッション達成写真";
 
   const copy = document.createElement("div");
   copy.className = "photo-detail-copy";
   const caption = document.createElement("h3");
-  caption.textContent = photo.caption || "言葉のない一枚";
+  caption.textContent = photo.caption || "ミッション達成！";
   copy.append(caption);
 
   if (photo.taken_at) {
@@ -142,7 +142,7 @@ function openPhoto(photo) {
     const deleteButton = document.createElement("button");
     deleteButton.className = "delete-button";
     deleteButton.type = "button";
-    deleteButton.textContent = "この写真を削除";
+    deleteButton.textContent = "この達成レポートを削除";
     deleteButton.addEventListener("click", () => deletePhoto(photo, deleteButton));
     copy.append(deleteButton);
   }
@@ -191,7 +191,7 @@ async function activateSession(session) {
 }
 
 async function loadPhotos() {
-  setStatus("写真を読み込んでいます");
+  setStatus("達成レポートを読み込んでいます");
   const { data, error } = await supabase
     .from("photos")
     .select("id, user_id, team_name, storage_path, thumbnail_path, caption, location, taken_at, created_at")
@@ -200,7 +200,7 @@ async function loadPhotos() {
     .limit(100);
 
   if (error) {
-    setStatus(`写真を読み込めませんでした: ${error.message}`, "note");
+    setStatus(`達成レポートを読み込めませんでした: ${error.message}`, "note");
     elements.photoCount.textContent = "ERROR";
     return;
   }
@@ -215,7 +215,7 @@ async function loadPhotos() {
     .from("photos")
     .createSignedUrls(paths, 15 * 60);
   if (signedUrlError) {
-    setStatus("写真の表示URLを作成できませんでした。再読み込みしてください。", "note");
+    setStatus("達成写真を表示できませんでした。再読み込みしてください。", "note");
     return;
   }
 
@@ -375,7 +375,7 @@ async function handleUpload(event) {
 }
 
 async function deletePhoto(photo, button) {
-  if (!window.confirm("この写真を削除しますか？この操作は取り消せません。")) return;
+  if (!window.confirm("この達成レポートを削除しますか？この操作は取り消せません。")) return;
   button.disabled = true;
   button.textContent = "削除しています";
 
@@ -394,7 +394,7 @@ async function deletePhoto(photo, button) {
   if (storageError) {
     elements.photoDialog.close();
     await loadPhotos();
-    setStatus("写真は一覧から削除しました。ファイルの完全削除は管理者が後で処理します。", "note");
+    setStatus("達成レポートは一覧から削除しました。ファイルの完全削除は管理者が後で処理します。", "note");
     return;
   }
 
