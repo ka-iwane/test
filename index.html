@@ -10,17 +10,41 @@
 	<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&amp;family=Shippori+Mincho:wght@500;600;700&amp;display=swap" rel="stylesheet">
 	<link rel="stylesheet" href="./css/style.css">
 </head>
-<body>
+<body class="auth-pending">
+	<section id="auth-screen" class="auth-screen" aria-labelledby="auth-title">
+		<form id="login-form" class="login-form">
+			<p class="eyebrow">PARTICIPANTS ONLY</p>
+			<h1 id="auth-title">旅の続きを、<br>ここから。</h1>
+			<p class="login-copy">社員旅行の参加者専用サイトです。案内されたアカウントでログインしてください。</p>
+			<label class="field">
+				<span>メールアドレス</span>
+				<input id="login-email" name="email" type="email" autocomplete="username" required>
+			</label>
+			<label class="field">
+				<span>パスワード</span>
+				<input id="login-password" name="password" type="password" autocomplete="current-password" required>
+			</label>
+			<p id="login-message" class="form-message" role="alert" hidden></p>
+			<button id="login-button" class="button button-primary" type="submit">ログイン</button>
+		</form>
+	</section>
+
 	<header class="site-header">
 		<a class="brand" href="./" aria-label="LENS NOTE ホーム">
 			<span class="brand-mark" aria-hidden="true"></span>
 			<span>LENS NOTE</span>
 		</a>
 		<p class="header-copy">いつもの景色を、少し丁寧に。</p>
-		<button class="button button-primary header-action" type="button" data-open-upload>
-			<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-			写真を投稿
-		</button>
+		<div class="header-actions">
+			<span id="participant-name" class="participant-name"></span>
+			<button class="icon-button" type="button" data-sign-out aria-label="ログアウト" title="ログアウト">
+				<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 17l5-5-5-5M15 12H3M14 4h5a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5"/></svg>
+			</button>
+			<button class="button button-primary header-action" type="button" data-open-upload>
+				<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+				写真を投稿
+			</button>
+		</div>
 	</header>
 
 	<main>
@@ -82,7 +106,7 @@
 				<span id="drop-placeholder" class="drop-placeholder">
 					<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h3l1.5-2h7L17 7h3v12H4zM8 13a4 4 0 1 0 8 0 4 4 0 0 0-8 0Z"/></svg>
 					<strong>写真を選択</strong>
-					<small>JPEG・PNG・WebP / 最大10MB</small>
+					<small>JPEG・PNG・WebP / 最大10MB（投稿時に自動圧縮）</small>
 				</span>
 				<img id="image-preview" alt="選択した写真のプレビュー" hidden>
 			</label>

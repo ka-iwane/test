@@ -2,59 +2,19 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_IMAGE_EDGE = 1920;
+const THUMBNAIL_EDGE = 720;
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const isConfigured = SUPABASE_URL.startsWith("https://") && !SUPABASE_ANON_KEY.startsWith("YOUR_");
 const supabase = isConfigured ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
-const demoPhotos = [
-  {
-    id: "demo-1",
-    caption: "午後の光がきれいだった日",
-    location: "窓辺",
-    taken_at: "2026-08-30",
-    created_at: "2026-08-30T08:00:00Z",
-    publicUrl: "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=85",
-    isDemo: true
-  },
-  {
-    id: "demo-2",
-    caption: "静かな朝の散歩",
-    location: "海岸通り",
-    taken_at: "2026-08-28",
-    created_at: "2026-08-28T08:00:00Z",
-    publicUrl: "https://images.unsplash.com/photo-1470252649378-9c29740c9fa8?auto=format&fit=crop&w=1000&q=85",
-    isDemo: true
-  },
-  {
-    id: "demo-3",
-    caption: "帰り道で見つけた色",
-    location: "街角",
-    taken_at: "2026-08-24",
-    created_at: "2026-08-24T08:00:00Z",
-    publicUrl: "https://images.unsplash.com/photo-1497250681960-ef046c08a56e?auto=format&fit=crop&w=1000&q=85",
-    isDemo: true
-  },
-  {
-    id: "demo-4",
-    caption: "雨上がり",
-    location: "公園",
-    taken_at: "2026-08-20",
-    created_at: "2026-08-20T08:00:00Z",
-    publicUrl: "https://images.unsplash.com/photo-1501691223387-dd0500403074?auto=format&fit=crop&w=1200&q=85",
-    isDemo: true
-  },
-  {
-    id: "demo-5",
-    caption: "ゆっくり流れる時間",
-    location: "喫茶店",
-    taken_at: "2026-08-18",
-    created_at: "2026-08-18T08:00:00Z",
-    publicUrl: "https://images.unsplash.com/photo-1445116572660-236099ec97a0?auto=format&fit=crop&w=1000&q=85",
-    isDemo: true
-  }
-];
-
 const elements = {
+  loginForm: document.querySelector("#login-form"),
+  loginEmail: document.querySelector("#login-email"),
+  loginPassword: document.querySelector("#login-password"),
+  loginMessage: document.querySelector("#login-message"),
+  loginButton: document.querySelector("#login-button"),
+  participantName: document.querySelector("#participant-name"),
   gallery: document.querySelector("#gallery"),
   status: document.querySelector("#status"),
   emptyState: document.querySelector("#empty-state"),
@@ -76,6 +36,7 @@ const elements = {
 };
 
 let currentUser = null;
+let currentParticipant = null;
 let previewUrl = null;
 
 function formatDate(value) {
@@ -119,7 +80,7 @@ function createMeta(photo) {
   return fragment;
 }
 
-function renderPhotos(photos, showDemoNotice = false) {
+function renderPhotos(photos) {
   elements.gallery.replaceChildren();
   elements.emptyState.hidden = photos.length > 0;
   elements.photoCount.textContent = `${photos.length} PHOTOS`;
@@ -128,21 +89,28 @@ function renderPhotos(photos, showDemoNotice = false) {
     const card = elements.cardTemplate.content.firstElementChild.cloneNode(true);
     const image = card.querySelector(".photo-card-image");
     const openButton = card.querySelector(".photo-card-open");
-    image.src = photo.publicUrl;
+    image.src = photo.thumbnailUrl;
     image.alt = photo.caption || "投稿された写真";
     card.querySelector(".photo-card-caption").textContent = photo.caption || "言葉のない一枚";
     card.querySelector(".photo-card-meta").append(createMeta(photo));
     card.style.animationDelay = `${Math.min(index * 70, 350)}ms`;
     openButton.setAttribute("aria-label", `${image.alt}を拡大表示`);
+    image.addEventListener("error", () => {
+      if (image.src !== photo.publicUrl) {
+        image.src = photo.publicUrl;
+        return;
+      }
+      image.removeAttribute("src");
+      image.alt = "画像を表示できません";
+      image.classList.add("is-unavailable");
+      openButton.disabled = true;
+      openButton.dataset.unavailable = "画像を表示できません";
+    });
     openButton.addEventListener("click", () => openPhoto(photo));
     elements.gallery.append(card);
   });
 
-  if (showDemoNotice) {
-    setStatus("現在はデモ表示です。Supabaseを設定すると写真を投稿できます。", "note");
-  } else {
-    hideStatus();
-  }
+  hideStatus();
 }
 
 function openPhoto(photo) {
@@ -168,7 +136,7 @@ function openPhoto(photo) {
     copy.append(location);
   }
 
-  if (!photo.isDemo && currentUser?.id === photo.user_id) {
+  if (currentUser?.id === photo.user_id) {
     const deleteButton = document.createElement("button");
     deleteButton.className = "delete-button";
     deleteButton.type = "button";
@@ -181,23 +149,43 @@ function openPhoto(photo) {
   elements.photoDialog.showModal();
 }
 
-async function ensureUser() {
-  const { data: sessionData } = await supabase.auth.getSession();
-  if (sessionData.session?.user) {
-    currentUser = sessionData.session.user;
-    return;
+function showLogin(message = "") {
+  document.body.classList.remove("auth-pending", "is-authenticated");
+  document.body.classList.add("is-auth-required");
+  elements.loginMessage.hidden = !message;
+  elements.loginMessage.textContent = message;
+}
+
+async function activateSession(session) {
+  currentUser = session.user;
+  const { data, error } = await supabase
+    .from("participants")
+    .select("display_name, team_name")
+    .eq("user_id", currentUser.id)
+    .eq("is_active", true)
+    .single();
+
+  if (error || !data) {
+    await supabase.auth.signOut();
+    currentUser = null;
+    throw new Error("このアカウントは旅行参加者として登録されていません。管理者へ確認してください。");
   }
 
-  const { data, error } = await supabase.auth.signInAnonymously();
-  if (error) throw new Error("匿名認証に失敗しました。SupabaseでAnonymous Sign-Insを有効にしてください。");
-  currentUser = data.user;
+  currentParticipant = data;
+  elements.participantName.textContent = data.team_name
+    ? `${data.display_name} / ${data.team_name}`
+    : data.display_name;
+  document.body.classList.remove("auth-pending", "is-auth-required");
+  document.body.classList.add("is-authenticated");
+  await loadPhotos();
 }
 
 async function loadPhotos() {
   setStatus("写真を読み込んでいます");
   const { data, error } = await supabase
     .from("photos")
-    .select("id, user_id, storage_path, caption, location, taken_at, created_at")
+    .select("id, user_id, storage_path, thumbnail_path, caption, location, taken_at, created_at")
+    .is("deleted_at", null)
     .order("created_at", { ascending: false })
     .limit(100);
 
@@ -207,9 +195,25 @@ async function loadPhotos() {
     return;
   }
 
+  if (data.length === 0) {
+    renderPhotos([]);
+    return;
+  }
+
+  const paths = [...new Set(data.flatMap((photo) => [photo.storage_path, photo.thumbnail_path].filter(Boolean)))];
+  const { data: signedFiles, error: signedUrlError } = await supabase.storage
+    .from("photos")
+    .createSignedUrls(paths, 15 * 60);
+  if (signedUrlError) {
+    setStatus("写真の表示URLを作成できませんでした。再読み込みしてください。", "note");
+    return;
+  }
+
+  const signedUrls = new Map(signedFiles.map((file) => [file.path, file.signedUrl]));
   const photos = data.map((photo) => ({
     ...photo,
-    publicUrl: supabase.storage.from("photos").getPublicUrl(photo.storage_path).data.publicUrl
+    publicUrl: signedUrls.get(photo.storage_path),
+    thumbnailUrl: signedUrls.get(photo.thumbnail_path) || signedUrls.get(photo.storage_path)
   }));
   renderPhotos(photos);
 }
@@ -230,6 +234,45 @@ function validateFile(file) {
   if (!ALLOWED_TYPES.has(file.type)) return "JPEG、PNG、WebP形式の写真を選択してください。";
   if (file.size > MAX_FILE_SIZE) return "写真のサイズは10MB以下にしてください。";
   return "";
+}
+
+function canvasToBlob(canvas, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => blob ? resolve(blob) : reject(new Error("画像を変換できませんでした。")),
+      "image/webp",
+      quality
+    );
+  });
+}
+
+async function renderImage(bitmap, maxEdge, quality) {
+  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  return canvasToBlob(canvas, quality);
+}
+
+async function optimizeImage(file) {
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch {
+    throw new Error("画像を読み込めませんでした。別の画像を選択してください。");
+  }
+
+  try {
+    const [image, thumbnail] = await Promise.all([
+      renderImage(bitmap, MAX_IMAGE_EDGE, 0.82),
+      renderImage(bitmap, THUMBNAIL_EDGE, 0.76)
+    ]);
+    if (image.size > MAX_FILE_SIZE) throw new Error("圧縮後の画像サイズが10MBを超えています。");
+    return { image, thumbnail };
+  } finally {
+    bitmap.close();
+  }
 }
 
 function updatePreview(file) {
@@ -278,26 +321,36 @@ async function handleUpload(event) {
   setSubmitting(true);
   let storagePath = "";
   try {
-    await ensureUser();
-    const extension = file.name.split(".").pop().toLowerCase();
-    storagePath = `${currentUser.id}/${crypto.randomUUID()}.${extension}`;
+    const optimized = await optimizeImage(file);
+    const imageId = crypto.randomUUID();
+    storagePath = `${currentUser.id}/${imageId}.webp`;
+    const thumbnailPath = `${currentUser.id}/${imageId}-thumb.webp`;
 
     const { error: uploadError } = await supabase.storage
       .from("photos")
-      .upload(storagePath, file, { contentType: file.type, upsert: false });
+      .upload(storagePath, optimized.image, { contentType: "image/webp", upsert: false });
     if (uploadError) throw uploadError;
+
+    const { error: thumbnailError } = await supabase.storage
+      .from("photos")
+      .upload(thumbnailPath, optimized.thumbnail, { contentType: "image/webp", upsert: false });
+    if (thumbnailError) {
+      await supabase.storage.from("photos").remove([storagePath]);
+      throw thumbnailError;
+    }
 
     const formData = new FormData(elements.uploadForm);
     const { error: insertError } = await supabase.from("photos").insert({
       user_id: currentUser.id,
       storage_path: storagePath,
+      thumbnail_path: thumbnailPath,
       original_name: file.name.slice(0, 255),
       caption: formData.get("caption")?.trim() || null,
       location: formData.get("location")?.trim() || null,
       taken_at: formData.get("taken_at") || null
     });
     if (insertError) {
-      await supabase.storage.from("photos").remove([storagePath]);
+      await supabase.storage.from("photos").remove([storagePath, thumbnailPath]);
       throw insertError;
     }
 
@@ -316,10 +369,22 @@ async function deletePhoto(photo, button) {
   button.disabled = true;
   button.textContent = "削除しています";
 
-  const { error: storageError } = await supabase.storage.from("photos").remove([photo.storage_path]);
-  if (storageError) {
+  const { error: hideError } = await supabase
+    .from("photos")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", photo.id);
+  if (hideError) {
     button.disabled = false;
     button.textContent = "削除できませんでした。もう一度試す";
+    return;
+  }
+
+  const paths = [photo.storage_path, photo.thumbnail_path].filter(Boolean);
+  const { error: storageError } = await supabase.storage.from("photos").remove(paths);
+  if (storageError) {
+    elements.photoDialog.close();
+    await loadPhotos();
+    setStatus("写真は一覧から削除しました。ファイルの完全削除は管理者が後で処理します。", "note");
     return;
   }
 
@@ -335,6 +400,31 @@ async function deletePhoto(photo, button) {
 }
 
 function bindEvents() {
+  elements.loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    elements.loginButton.disabled = true;
+    elements.loginMessage.hidden = true;
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: elements.loginEmail.value.trim(),
+      password: elements.loginPassword.value
+    });
+    try {
+      if (error) throw new Error("メールアドレスまたはパスワードが正しくありません。");
+      await activateSession(data.session);
+      elements.loginForm.reset();
+    } catch (loginError) {
+      showLogin(loginError.message);
+    } finally {
+      elements.loginButton.disabled = false;
+    }
+  });
+  document.querySelector("[data-sign-out]").addEventListener("click", async () => {
+    await supabase.auth.signOut();
+    currentUser = null;
+    currentParticipant = null;
+    elements.gallery.replaceChildren();
+    showLogin();
+  });
   document.querySelectorAll("[data-open-upload]").forEach((button) => {
     button.addEventListener("click", () => elements.uploadDialog.showModal());
   });
@@ -378,20 +468,26 @@ function bindEvents() {
 }
 
 async function initialize() {
-  bindEvents();
   resetForm();
 
   if (!isConfigured) {
-    renderPhotos(demoPhotos, true);
+    showLogin("Supabaseの接続設定がありません。管理者へ連絡してください。");
     return;
   }
 
+  bindEvents();
+
   try {
-    await ensureUser();
-    await loadPhotos();
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    if (!data.session) {
+      document.body.classList.remove("auth-pending");
+      showLogin();
+      return;
+    }
+    await activateSession(data.session);
   } catch (error) {
-    setStatus(error.message, "note");
-    elements.photoCount.textContent = "SETUP REQUIRED";
+    showLogin(error.message || "ログイン状態を確認できませんでした。");
   }
 }
 
