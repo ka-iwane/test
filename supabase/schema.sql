@@ -1,5 +1,11 @@
 create extension if not exists pgcrypto;
 
+create table if not exists public.admins (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  display_name text not null check (char_length(display_name) between 1 and 80),
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.participants (
   user_id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null check (char_length(display_name) between 1 and 80),
@@ -207,6 +213,138 @@ revoke all on function public.create_team_access(text, text, timestamptz, intege
 revoke all on function public.claim_team_access(text, text, text) from public, anon;
 grant execute on function public.claim_team_access(text, text, text) to authenticated;
 
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.admins where user_id = auth.uid()
+  );
+$$;
+
+revoke all on function public.is_admin() from public, anon;
+grant execute on function public.is_admin() to authenticated;
+
+create or replace function public.admin_create_team_access(
+  p_team_name text,
+  p_pin text,
+  p_expires_at timestamptz,
+  p_max_registrations integer
+)
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '管理者権限が必要です。';
+  end if;
+  return public.create_team_access(p_team_name, p_pin, p_expires_at, p_max_registrations);
+end;
+$$;
+
+create or replace function public.admin_list_team_access()
+returns table (
+  id uuid,
+  team_name text,
+  expires_at timestamptz,
+  max_registrations integer,
+  registration_count integer,
+  is_active boolean,
+  created_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '管理者権限が必要です。';
+  end if;
+  return query
+  select access.id, access.team_name, access.expires_at,
+    access.max_registrations, access.registration_count,
+    access.is_active, access.created_at
+  from public.team_access access
+  order by access.created_at desc;
+end;
+$$;
+
+create or replace function public.admin_set_team_access_active(
+  p_id uuid,
+  p_is_active boolean
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '管理者権限が必要です。';
+  end if;
+  update public.team_access set is_active = p_is_active where id = p_id;
+end;
+$$;
+
+create or replace function public.admin_list_participants()
+returns table (
+  user_id uuid,
+  display_name text,
+  team_name text,
+  is_active boolean,
+  created_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '管理者権限が必要です。';
+  end if;
+  return query
+  select participant.user_id, participant.display_name,
+    participant.team_name, participant.is_active, participant.created_at
+  from public.participants participant
+  order by participant.team_name, participant.created_at;
+end;
+$$;
+
+create or replace function public.admin_set_participant_active(
+  p_user_id uuid,
+  p_is_active boolean
+)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if not public.is_admin() then
+    raise exception '管理者権限が必要です。';
+  end if;
+  update public.participants
+  set is_active = p_is_active
+  where user_id = p_user_id;
+end;
+$$;
+
+revoke all on function public.admin_create_team_access(text, text, timestamptz, integer) from public, anon;
+revoke all on function public.admin_list_team_access() from public, anon;
+revoke all on function public.admin_set_team_access_active(uuid, boolean) from public, anon;
+revoke all on function public.admin_list_participants() from public, anon;
+revoke all on function public.admin_set_participant_active(uuid, boolean) from public, anon;
+grant execute on function public.admin_create_team_access(text, text, timestamptz, integer) to authenticated;
+grant execute on function public.admin_list_team_access() to authenticated;
+grant execute on function public.admin_set_team_access_active(uuid, boolean) to authenticated;
+grant execute on function public.admin_list_participants() to authenticated;
+grant execute on function public.admin_set_participant_active(uuid, boolean) to authenticated;
+
 create or replace function public.is_same_team_participant(p_user_id text)
 returns boolean
 language sql
@@ -229,9 +367,16 @@ revoke all on function public.is_same_team_participant(text) from public, anon;
 grant execute on function public.is_same_team_participant(text) to authenticated;
 
 alter table public.photos enable row level security;
+alter table public.admins enable row level security;
 alter table public.participants enable row level security;
 alter table public.team_access enable row level security;
 alter table public.team_claim_attempts enable row level security;
+
+drop policy if exists "Admins can read their own profile" on public.admins;
+create policy "Admins can read their own profile"
+on public.admins for select
+to authenticated
+using ((select auth.uid()) = user_id);
 
 drop policy if exists "Participants can read their own profile" on public.participants;
 create policy "Participants can read their own profile"
@@ -352,3 +497,34 @@ using (
   bucket_id = 'photos'
   and public.is_same_team_participant(owner_id)
 );
+
+drop policy if exists "Admins can read all photos" on public.photos;
+create policy "Admins can read all photos"
+on public.photos for select
+to authenticated
+using (public.is_admin());
+
+drop policy if exists "Admins can update all photos" on public.photos;
+create policy "Admins can update all photos"
+on public.photos for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "Admins can delete all photos" on public.photos;
+create policy "Admins can delete all photos"
+on public.photos for delete
+to authenticated
+using (public.is_admin());
+
+drop policy if exists "Admins can view all photo objects" on storage.objects;
+create policy "Admins can view all photo objects"
+on storage.objects for select
+to authenticated
+using (bucket_id = 'photos' and public.is_admin());
+
+drop policy if exists "Admins can delete all photo objects" on storage.objects;
+create policy "Admins can delete all photo objects"
+on storage.objects for delete
+to authenticated
+using (bucket_id = 'photos' and public.is_admin());

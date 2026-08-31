@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="タビクエ！のチーム、参加端末、達成レポートを管理します。">
+  <title>タビクエ！管理室</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&amp;family=Zen+Kaku+Gothic+New:wght@400;500;700;900&amp;display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./admin.css">
+</head>
+<body class="admin-pending">
+  <section id="admin-login" class="admin-login" aria-labelledby="login-title">
+    <form id="admin-login-form" class="login-panel">
+      <p class="eyebrow">CONTROL ROOM</p>
+      <h1 id="login-title">タビクエ！<br>管理室</h1>
+      <p>管理者として登録されたアカウントでログインしてください。</p>
+      <label>
+        <span>メールアドレス</span>
+        <input id="admin-email" type="email" autocomplete="username" required>
+      </label>
+      <label>
+        <span>パスワード</span>
+        <input id="admin-password" type="password" autocomplete="current-password" required>
+      </label>
+      <p id="login-error" class="message error" role="alert" hidden></p>
+      <button id="login-submit" class="button primary" type="submit">管理室へ入る</button>
+    </form>
+  </section>
+
+  <div id="admin-app" class="admin-app" hidden>
+    <header class="topbar">
+      <a class="brand" href="../" target="_blank" rel="noopener">タビクエ！</a>
+      <span class="admin-badge">管理室</span>
+      <div class="account">
+        <span id="admin-name"></span>
+        <button id="sign-out" class="icon-button" type="button" title="ログアウト" aria-label="ログアウト">↪</button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <nav class="side-nav" aria-label="管理メニュー">
+        <button class="nav-button is-active" type="button" data-view="teams">チーム管理</button>
+        <button class="nav-button" type="button" data-view="participants">参加端末</button>
+        <button class="nav-button" type="button" data-view="reports">達成レポート</button>
+      </nav>
+
+      <main class="content">
+        <div class="content-heading">
+          <div>
+            <p class="eyebrow">TRIP OPERATIONS</p>
+            <h2 id="view-title">チーム管理</h2>
+          </div>
+          <button id="refresh" class="button secondary" type="button">最新情報に更新</button>
+        </div>
+        <p id="admin-message" class="message" role="status" hidden></p>
+
+        <section id="teams-view" class="view" aria-labelledby="view-title">
+          <div class="issue-panel">
+            <div>
+              <h3>6チームのQRを一括発行</h3>
+              <p>チームA〜Fを作成します。PINはQRと別経路で参加者へ共有してください。</p>
+            </div>
+            <form id="issue-teams-form" class="issue-form">
+              <label>
+                <span>共通PIN</span>
+                <input id="team-pin" type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" placeholder="6桁推奨" required>
+              </label>
+              <label>
+                <span>有効期限</span>
+                <input id="team-expires" type="datetime-local" required>
+              </label>
+              <label>
+                <span>各チームの上限</span>
+                <input id="team-limit" type="number" min="1" max="100" value="10" required>
+              </label>
+              <button id="issue-teams" class="button primary" type="submit">6チームを発行</button>
+            </form>
+          </div>
+
+          <div id="issued-qr" class="issued-section" hidden>
+            <div class="section-title">
+              <div>
+                <h3>発行したQRコード</h3>
+                <p>この画面を閉じる前に、各QR画像を保存してください。</p>
+              </div>
+            </div>
+            <div id="qr-grid" class="qr-grid"></div>
+          </div>
+
+          <div class="section-title">
+            <div>
+              <h3>発行履歴</h3>
+              <p>トークンとPINは安全のため再表示されません。</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>チーム</th><th>登録数</th><th>有効期限</th><th>状態</th><th>操作</th></tr></thead>
+              <tbody id="teams-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="participants-view" class="view" aria-labelledby="view-title" hidden>
+          <div class="section-title">
+            <div><h3>参加登録された端末</h3><p>紛失端末や誤登録を停止できます。</p></div>
+            <strong id="participant-count">0台</strong>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>表示名</th><th>チーム</th><th>登録日時</th><th>状態</th><th>操作</th></tr></thead>
+              <tbody id="participants-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="reports-view" class="view" aria-labelledby="view-title" hidden>
+          <div class="section-title">
+            <div><h3>達成レポート一覧</h3><p>全チームの投稿を確認・削除できます。</p></div>
+            <strong id="report-count">0件</strong>
+          </div>
+          <div id="reports-grid" class="reports-grid"></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script type="module" src="./admin.js"></script>
+</body>
+</html>

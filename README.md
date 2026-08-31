@@ -5,7 +5,7 @@ GitHub PagesとSupabaseで動作する、社員旅行参加者専用の写真投
 ## Supabaseの準備
 
 1. Supabaseでプロジェクトを作成します。
-2. AuthenticationのProviders設定でAnonymous Sign-Insを有効にします。Email認証は不要です。
+2. AuthenticationのProviders設定で、参加者用のAnonymous Sign-Insと管理者用のEmail認証を有効にします。一般利用者の新規ユーザー登録は無効にしてください。
 3. SupabaseのSQL Editorで [`supabase/schema.sql`](./supabase/schema.sql) を実行します。既存環境への再実行にも対応しています。
 4. Project SettingsのAPI画面からProject URLとpublishable key（またはanon public key）を確認します。
 5. [`js/config.js`](./js/config.js) のプレースホルダーを、確認した値へ置き換えます。
@@ -19,7 +19,9 @@ Supabase URLとpublishable keyはブラウザへ公開されます。データ�
 
 ## チームQRコードの発行
 
-SupabaseのSQL Editorでチームごとに次のSQLを実行します。PINは4〜8桁の数字、有効期限は旅行終了後まで、登録上限はチームの端末数に少し余裕を持たせて設定します。
+管理画面から6チームをまとめて発行できます。SQL Editorから発行する場合は [`supabase/create-six-teams.sql`](./supabase/create-six-teams.sql) を開き、共通PIN、有効期限、各チームの登録上限を変更して実行してください。
+
+チームごとに個別発行する場合は次のSQLを実行します。PINは4〜8桁の数字、有効期限は旅行終了後まで、登録上限はチームの端末数に少し余裕を持たせて設定します。
 
 ```sql
 select public.create_team_access(
@@ -64,6 +66,44 @@ set is_active = false
 where team_name = 'チームA';
 ```
 
+## 管理者ページ
+
+### 初回管理者の登録
+
+1. Supabase DashboardのAuthentication > Usersから、管理者のメールアドレスとパスワードを登録します。
+2. 作成されたユーザーのUUIDを確認します。
+3. SQL Editorで次を実行します。
+
+```sql
+insert into public.admins (user_id, display_name)
+values ('Authenticationに表示されたUUID', '旅行運営');
+```
+
+service_role keyを管理画面へ設定する必要はありません。管理操作はログインユーザーが`admins`に登録されているか、Supabase側で毎回確認されます。
+
+### アクセスURL
+
+ローカルでは次のURLです。
+
+```text
+http://localhost:4173/admin/
+```
+
+GitHub Pagesでは公開URLの末尾へ`admin/`を付けます。
+
+```text
+https://example.github.io/trip/admin/
+```
+
+管理画面では次の操作ができます。
+
+- チームA〜FのQRコード一括発行・画像保存
+- QR受付の停止・再開
+- 参加登録端末の確認・停止・再開
+- 全チームの達成レポート確認・削除
+
+QRトークンはハッシュ化して保存され、発行後に復元できません。管理画面で発行した直後にQR画像を保存してください。
+
 ## ローカルで確認
 
 ES Modulesを利用しているため、ローカルWebサーバーから開いてください。
@@ -91,6 +131,7 @@ CSS、JavaScriptなどは相対パスで参照しているため、プロジェ�
 - QRトークンとPINはハッシュ化して保存し、平文では保持しません。
 - PIN入力は匿名セッションごとに10分間5回までです。
 - QRコードには推測困難なランダムトークンだけを含め、PINは別経路で共有します。
+- 管理ページはメール認証に加え、`admins`テーブルによる権限確認を行います。
 - JPEG、PNG、WebPの入力に対応し、入力ファイルの上限は10MBです。
 - 投稿時に最大1920pxのWebPへ再エンコードするため、EXIFなどのメタデータは保存されません。
 - 一覧用に最大720pxのサムネイルを生成し、通信量を抑えます。
